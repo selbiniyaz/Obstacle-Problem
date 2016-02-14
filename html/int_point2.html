@@ -1,0 +1,571 @@
+
+<!DOCTYPE html
+  PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html><head>
+      <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+   <!--
+This HTML was auto-generated from MATLAB code.
+To make changes, update the MATLAB code and republish this document.
+      --><title>int_point2</title><meta name="generator" content="MATLAB 7.11"><link rel="schema.DC" href="http://purl.org/dc/elements/1.1/"><meta name="DC.date" content="2016-02-14"><meta name="DC.source" content="int_point2.m"><style type="text/css">
+
+body {
+  background-color: white;
+  margin:10px;
+}
+
+h1 {
+  color: #990000; 
+  font-size: x-large;
+}
+
+h2 {
+  color: #990000;
+  font-size: medium;
+}
+
+/* Make the text shrink to fit narrow windows, but not stretch too far in 
+wide windows. */ 
+p,h1,h2,div.content div {
+  max-width: 600px;
+  /* Hack for IE6 */
+  width: auto !important; width: 600px;
+}
+
+pre.codeinput {
+  background: #EEEEEE;
+  padding: 10px;
+}
+@media print {
+  pre.codeinput {word-wrap:break-word; width:100%;}
+} 
+
+span.keyword {color: #0000FF}
+span.comment {color: #228B22}
+span.string {color: #A020F0}
+span.untermstring {color: #B20000}
+span.syscmd {color: #B28C00}
+
+pre.codeoutput {
+  color: #666666;
+  padding: 10px;
+}
+
+pre.error {
+  color: red;
+}
+
+p.footer {
+  text-align: right;
+  font-size: xx-small;
+  font-weight: lighter;
+  font-style: italic;
+  color: gray;
+}
+
+  </style></head><body><div class="content"><h2>Contents</h2><div><ul><li><a href="#1">CODE FOR My MASTER THESIS WORK "Interior point method for the numerical simulation of the obstacle problem"</a></li><li><a href="#3">Function which computes the local stiffness matrix</a></li><li><a href="#6">Function which describes the obstacle</a></li><li><a href="#9">Function for plotting of the surface on triangular mesh</a></li></ul></div><h2>CODE FOR My MASTER THESIS WORK "Interior point method for the numerical simulation of the obstacle problem"<a name="1"></a></h2><p>(c) Serbiniyaz Anyyeva, Sommersemeter 2007</p><p>selbiniyaz(at)yahoo.com</p><pre class="codeinput"><span class="keyword">function</span> min_obstacle
+</pre><pre class="codeinput">clc; clear <span class="string">all</span>;
+<span class="comment">% Geometry is imported from the workspace file</span>
+load  <span class="string">geometry_square.mat</span>;
+hs=inf;  <span class="comment">% for structured mesh</span>
+[coordinates,edges,triangles]=initmesh(geom, <span class="string">'Hmax'</span>, hs);
+<span class="keyword">for</span> i_refin=1:6
+    [coordinates,edges,triangles]=refinemesh(geom,coordinates,edges,triangles);
+<span class="keyword">end</span>
+kappa = 1.;
+Theta = 0.5;                        <span class="comment">% precision for the Newton iterations</span>
+tau = 0.9;
+k = 0;
+iter=[];                            <span class="comment">% stores iteration number, corresponding kappa value and newton iterations number</span>
+N = size(coordinates,2);            <span class="comment">% number of nodes in mesh</span>
+eps = 0.1/sqrt(N);                  <span class="comment">% precision for the interior point method</span>
+<span class="keyword">if</span> size(triangles,1) == 4
+    triangles(4,:) = [] ;
+<span class="keyword">end</span>;
+N_t = size(triangles,2);                     <span class="comment">% returns the number of triangles in the mesh (number of columns)</span>
+BoundaryNodes=unique(edges(1:2,:));
+Nodes = setdiff(1:N,BoundaryNodes);          <span class="comment">% these are nodes in mesh excluding boundary nodes</span>
+u = zeros(N,1);                              <span class="comment">% starting values</span>
+C = 0.0000000000000001;
+C1 = 0;
+pic = 0;                                     <span class="comment">% counter for pictures</span>
+<span class="comment">% spparms('spumoni',1)</span>
+tic;                                           <span class="comment">% timer on</span>
+psi_n = zeros(N,1);
+<span class="keyword">for</span> j=1:N
+    psi_n(j) = f_psi(coordinates(:,j));
+<span class="keyword">end</span>
+grad_u_grad_v = sparse(N,N);
+f_phi = zeros(N,1);
+jac=zeros(N_t,1);
+<span class="keyword">for</span> j = 1:N_t
+    tri = triangles(:,j);
+    jac(j)=det([1,1,1; coordinates(:,tri')]);                                                                 <span class="comment">% 2 x area of the current triangle</span>
+    grad_u_grad_v(tri,tri) = grad_u_grad_v(tri,tri)+Local_Stiff_1(coordinates(:,tri'));                         <span class="comment">% grad_u grad v integral component</span>
+    f_phi(tri)=f_phi(tri)+  [f(coordinates(:,tri(1)));f(coordinates(:,tri(2)));f(coordinates(:,tri(3)))]*jac(j)/6;
+<span class="keyword">end</span>
+kappa_cond=0;
+<span class="keyword">while</span> kappa_cond==0                                  <span class="comment">% here the predictor-corrector iterations begin</span>
+    k=k+1;
+    disp([<span class="string">'CORRECTOR STEP: '</span>, <span class="string">'k='</span>,int2str(k),<span class="string">' \kappa='</span>,num2str(kappa)]);
+    conv=1;                                       <span class="comment">% convergence criterion</span>
+    m=0;                                          <span class="comment">% counter for Newton iterations</span>
+    disp(<span class="string">'Newton iterations ...  '</span>);
+    <span class="keyword">while</span> conv &gt; Theta                            <span class="comment">% Newton iterations begin</span>
+        m=m+1;
+        A = grad_u_grad_v;
+        b = -grad_u_grad_v*u + f_phi;
+        <span class="comment">% Assembly</span>
+        <span class="keyword">for</span> j = 1:N_t
+            tri=triangles(:,j);
+            bf=1./(u(tri)-psi_n(tri));                                                       <span class="comment">% barrier factor</span>
+            A(tri,tri)  = A(tri,tri) + kappa * jac(j) * diag(bf.^2)/6;                                                  <span class="comment">% Stiffnes matrix</span>
+            b(tri) = b(tri) + jac(j)  * kappa * bf/6 ;                                                          <span class="comment">% Right hand side</span>
+        <span class="keyword">end</span>
+        corr = zeros(N,1);
+        <span class="comment">%corr(BoundaryNodes) = 0;</span>
+        <span class="comment">%b = b - A * corr;</span>
+        <span class="comment">%COMPUTATION OF THE CORRECTOR</span>
+        corr(Nodes)= A(Nodes,Nodes)\b(Nodes);
+        vec = corr./(u-psi_n);
+        Linf_vec = norm(vec,inf);
+        L2_vec = sqrt(sum(vec(triangles).^2,1)*jac/6);
+        <span class="keyword">if</span> L2_vec&gt;0
+            C1 = Linf_vec/L2_vec;
+        <span class="keyword">end</span>
+        C = max(C1,C);
+        alpha = 1;
+        <span class="keyword">while</span> alpha*Linf_vec &gt;0.99
+            alpha = alpha/2;
+        <span class="keyword">end</span>;
+        u = u+alpha*corr;
+        conv=Linf_vec;
+    <span class="keyword">end</span>
+    iter = [iter; [k, kappa, m]];
+    clear <span class="string">corr</span>;
+    <span class="keyword">if</span> kappa&lt;=eps
+        <span class="keyword">break</span>
+    <span class="keyword">end</span>
+    disp([<span class="string">'PREDICTOR STEP...'</span>]);
+    A = grad_u_grad_v;
+    b = -grad_u_grad_v*u + f_phi;
+    <span class="comment">% Assembly</span>
+    <span class="keyword">for</span> j = 1:N_t
+        tri=triangles(:,j);
+        bf=(1./(u(tri)-psi_n(tri)));                                               <span class="comment">% barrier factor</span>
+        A(tri,tri) = A(tri,tri) + kappa * jac(j) * diag(bf.^2)/6;                <span class="comment">% Stiffnes matrix</span>
+    <span class="keyword">end</span>
+    pred = zeros(N,1);
+    <span class="comment">% COMPUTATION OF THE PREDICTOR</span>
+    pred(Nodes)= A(Nodes,Nodes)\b(Nodes);
+    vecp = pred./(u-psi_n);
+    Linf_vecp = norm(vecp,inf);
+    rho = 0.99;
+    <span class="keyword">while</span> rho*Linf_vecp &gt; 0.99
+        rho = 0.9*rho;
+        <span class="keyword">if</span> rho &lt; 0.001
+            <span class="string">'small rho....'</span>
+            stop
+        <span class="keyword">end</span>
+    <span class="keyword">end</span>;
+    <span class="comment">% checking of the condition for rho</span>
+    Xi1=sum(vec(triangles).^4,1)*jac/6;
+    Xi2=sum(vec(triangles).^4.*vecp(triangles),1)*jac/6;
+    Xi3=sum(vec(triangles).^4.*vecp(triangles).^2,1)*jac/6;
+    Xi4=sum(vec(triangles).^2.*vecp(triangles).*(1.+vecp(triangles)),1)*jac/6;
+    Xi5=sum(vec(triangles).^2.*vecp(triangles).^2.*(1.+vecp(triangles)),1)*jac/6;
+    Xi6=sum(vecp(triangles).^2.*(1.+vecp(triangles)).^2,1)*jac/6;
+    Xi=Xi1+2*rho*Xi2+rho*rho*Xi3+2*rho*rho/(1-rho)*Xi4+2*rho^3/(1-rho)*Xi5+rho^4/(1-rho)^2*Xi6;
+    rho1=rho;
+    Xi_min=Xi;
+    <span class="keyword">while</span> Xi &gt; (Theta/C)^2
+        <span class="keyword">if</span> rho1&lt;0.1
+            rho1=0.7*rho1;
+        <span class="keyword">else</span>
+            rho1=rho1-0.1;
+        <span class="keyword">end</span>;
+        <span class="keyword">if</span> rho1&lt;=0.0001
+            <span class="string">' Xi^2 &lt;= (Theta/C)^2 is not satisfied'</span>
+            <span class="keyword">break</span>
+        <span class="keyword">end</span>
+        Xi_min=Xi1+2*rho1*Xi2+rho1*rho1*Xi3+2*rho1*rho1/(1-rho1)*Xi4+2*rho1^3/(1-rho1)*Xi5+rho1^4/(1-rho1)^2*Xi6;
+        <span class="keyword">if</span> Xi_min&lt;Xi
+            rho=rho1;
+            Xi=Xi_min;
+        <span class="keyword">end</span>
+    <span class="keyword">end</span>
+    u=u+rho*pred;
+    clear <span class="string">pred</span>;
+    kappa=(1-rho)*kappa;
+<span class="keyword">end</span>
+toc;
+clear <span class="string">f_phi</span>;
+c=kappa./(u-psi_n)-10;
+pic=pic+1; show(pic,triangles,coordinates,u); title(<span class="string">'Approximate solution u'</span> )
+show(pic+1,triangles, coordinates, c); title (<span class="string">'Lagrange multipliers'</span>); view(0,0);
+disp(<span class="string">'-----------------------------------------------'</span>);
+disp(<span class="string">'Iteration No |  kappa  | # of Newton iterations'</span>);
+iter
+<span class="keyword">return</span>
+</pre><h2>Function which computes the local stiffness matrix<a name="3"></a></h2><pre class="codeinput"><span class="keyword">function</span> A_elem = Local_Stiff_1(vertices,area)
+</pre><pre class="codeinput">G = [1,1,1;vertices] \ [0, 0; 1,0; 0,1];
+A_elem = det([1,1,1;vertices]) * G * G'/2 ;
+<span class="keyword">return</span>
+</pre><pre class="codeoutput">CORRECTOR STEP: k=1 \kappa=1
+Newton iterations ...  
+PREDICTOR STEP...
+CORRECTOR STEP: k=2 \kappa=0.609
+Newton iterations ...  
+PREDICTOR STEP...
+CORRECTOR STEP: k=3 \kappa=0.37088
+Newton iterations ...  
+PREDICTOR STEP...
+CORRECTOR STEP: k=4 \kappa=0.22587
+Newton iterations ...  
+PREDICTOR STEP...
+CORRECTOR STEP: k=5 \kappa=0.11497
+Newton iterations ...  
+PREDICTOR STEP...
+CORRECTOR STEP: k=6 \kappa=0.058518
+Newton iterations ...  
+PREDICTOR STEP...
+CORRECTOR STEP: k=7 \kappa=0.023934
+Newton iterations ...  
+PREDICTOR STEP...
+CORRECTOR STEP: k=8 \kappa=0.0073955
+Newton iterations ...  
+PREDICTOR STEP...
+CORRECTOR STEP: k=9 \kappa=0.0015457
+Newton iterations ...  
+PREDICTOR STEP...
+CORRECTOR STEP: k=10 \kappa=0.00016848
+Newton iterations ...  
+Elapsed time is 22.640401 seconds.
+-----------------------------------------------
+Iteration No |  kappa  | # of Newton iterations
+
+iter =
+
+    1.0000    1.0000   13.0000
+    2.0000    0.6090    1.0000
+    3.0000    0.3709    1.0000
+    4.0000    0.2259    1.0000
+    5.0000    0.1150    1.0000
+    6.0000    0.0585    1.0000
+    7.0000    0.0239    1.0000
+    8.0000    0.0074    1.0000
+    9.0000    0.0015    1.0000
+   10.0000    0.0002    1.0000
+
+</pre><h2>Function which describes the obstacle<a name="6"></a></h2><pre class="codeinput"><span class="keyword">function</span> Obstacle = f_psi(x);
+</pre><pre class="codeinput"><span class="comment">% Obstacle =-1;                   %            horizontal plane</span>
+<span class="comment">%--------------------------------------------------------------</span>
+<span class="comment">% Obstacle = -0.2*x(1)-0.2*x(2)-0.5;          % oblique plane</span>
+<span class="comment">% %-----------------------------------------------------------------</span>
+<span class="comment">%  if (abs(x(1))&lt;=0.5)</span>
+<span class="comment">%      Obstacle = -2;</span>
+<span class="comment">%  elseif (x(1)&gt;-1) &amp; (x(1)&lt;-0.5)</span>
+<span class="comment">%      Obstacle = 20*x(1)+8;</span>
+<span class="comment">%  elseif (x(1)&gt;0.5) &amp; (x(1)&lt;1)</span>
+<span class="comment">%      Obstacle  = -20*x(1)+8;</span>
+<span class="comment">%  else</span>
+<span class="comment">%      Obstacle = -12;</span>
+<span class="comment">%  end</span>
+<span class="comment">% %-----------------------------------------------------------------</span>
+<span class="comment">% if (abs(x(1)-0.2)&lt;=0.3)</span>
+<span class="comment">%     Obstacle = -2;</span>
+<span class="comment">% else</span>
+<span class="comment">%     Obstacle = -20;</span>
+<span class="comment">% end</span>
+<span class="comment">% -------------------------------------------------------------------</span>
+<span class="keyword">if</span> (abs(x(1)-0.3)&lt;=0.4) &amp; (abs(x(2))&lt;=0.4)             <span class="comment">% piecewise linear</span>
+    Obstacle = -0.2;
+<span class="keyword">elseif</span> (x(1)&lt;-0.1 &amp; x(1)&gt;-0.2 &amp; abs(x(2))&lt;=0.4)
+    Obstacle = 100*x(1)+9.2;
+<span class="keyword">elseif</span> (x(1)&lt;0.5 &amp; x(1)&gt;0.4 &amp; abs(x(2))&lt;=0.4)
+    Obstacle = -100*x(1)-40.2;
+<span class="keyword">elseif</span> (abs(x(1)-0.3)&lt;=0.4 &amp; x(2)&lt;.5 &amp; x(2)&gt;0.4)
+    Obstacle = -100*x(2)-40.2;
+<span class="keyword">elseif</span> (abs(x(1)-0.3)&lt;=0.4 &amp; x(2)&lt;-.4 &amp; x(2)&gt;-0.5)
+    Obstacle = 100*x(2)+39.8;
+<span class="keyword">else</span>
+    Obstacle = -10.2;
+<span class="keyword">end</span>
+<span class="comment">%----------------------------------------------------------------------</span>
+<span class="comment">% if (x(1)-0.3)^2+x(2)^2&lt;=0.25                    %     vertical cylinder</span>
+<span class="comment">%        Obstacle= 1;</span>
+<span class="comment">% else</span>
+<span class="comment">%     Obstacle=-1;</span>
+<span class="comment">% end;</span>
+<span class="comment">%----------------------------------------------------------------------</span>
+<span class="comment">% if (x(1)-0.3)^2+x(2)^2&lt;=1                     %   cone, opened</span>
+<span class="comment">%        Obstacle= -sqrt((x(1)-0.3)^2+x(2)^2)-2;</span>
+<span class="comment">% else</span>
+<span class="comment">%     Obstacle=-100;</span>
+<span class="comment">% end;</span>
+
+<span class="comment">%------------------------------------------------------------------</span>
+<span class="comment">%  if (x(1)+0.3)^2+x(2)^2&lt;=0.64                %    sphere</span>
+<span class="comment">%      Obstacle=sqrt(0.64-(x(1)+0.3)^2-x(2)^2)-2;</span>
+<span class="comment">%  else</span>
+<span class="comment">%      Obstacle=-2;</span>
+<span class="comment">%  end</span>
+<span class="comment">%</span>
+<span class="comment">% R=0.7;</span>
+<span class="comment">% if x(1)^2+x(2)^2&lt;=R^2                   % sphere</span>
+<span class="comment">%      Obstacle=sqrt(R^2-(x(1))^2-x(2)^2)-R-1;</span>
+<span class="comment">% %  else</span>
+<span class="comment">%      Obstacle=-100;</span>
+<span class="comment">%  end</span>
+<span class="comment">% ---------------------------------------------------------------------</span>
+<span class="comment">%  if (abs(x(1)+0.3)&lt;=0.8)                             %  horizontal cylinder</span>
+<span class="comment">%       Obstacle = sqrt(0.64-(x(1)+0.3)^2)-1;</span>
+<span class="comment">%   else</span>
+<span class="comment">%       Obstacle = -1;</span>
+<span class="comment">%   end</span>
+<span class="comment">%-------------------------------------------------------------------------</span>
+<span class="comment">%   Obstacle = sin(pi*(x(1)+1/4))-0.5;</span>
+<span class="keyword">return</span>
+</pre><h2>Function for plotting of the surface on triangular mesh<a name="9"></a></h2><pre class="codeinput"><span class="keyword">function</span> show(pic_no,triangles,coordinates,u)
+figure(pic_no);
+trisurf(triangles',coordinates(1,:),coordinates(2,:),full(u)',<span class="string">'facecolor'</span>,<span class="string">'interp'</span>,<span class="string">'FaceLighting'</span>,<span class="string">'phong'</span>);
+colorbar; view([-42 40]);
+<span class="comment">%         zlim([-10,0]);</span>
+<span class="keyword">return</span>
+</pre><img vspace="5" hspace="5" src="int_point2_01.png" alt=""> <img vspace="5" hspace="5" src="int_point2_02.png" alt=""> <p class="footer"><br>
+      Published with MATLAB&reg; 7.11<br></p></div><!--
+##### SOURCE BEGIN #####
+%% CODE FOR My MASTER THESIS WORK "Interior point method for the numerical simulation of the obstacle problem"
+%
+% (c) Serbiniyaz Anyyeva, Sommersemeter 2007
+%
+% selbiniyaz(at)yahoo.com
+function min_obstacle
+clc; clear all;
+% Geometry is imported from the workspace file
+load  geometry_square.mat;
+hs=inf;  % for structured mesh
+[coordinates,edges,triangles]=initmesh(geom, 'Hmax', hs);
+for i_refin=1:6
+    [coordinates,edges,triangles]=refinemesh(geom,coordinates,edges,triangles);
+end
+kappa = 1.;
+Theta = 0.5;                        % precision for the Newton iterations
+tau = 0.9;
+k = 0;
+iter=[];                            % stores iteration number, corresponding kappa value and newton iterations number
+N = size(coordinates,2);            % number of nodes in mesh
+eps = 0.1/sqrt(N);                  % precision for the interior point method
+if size(triangles,1) == 4
+    triangles(4,:) = [] ;
+end;
+N_t = size(triangles,2);                     % returns the number of triangles in the mesh (number of columns)
+BoundaryNodes=unique(edges(1:2,:));
+Nodes = setdiff(1:N,BoundaryNodes);          % these are nodes in mesh excluding boundary nodes
+u = zeros(N,1);                              % starting values
+C = 0.0000000000000001;
+C1 = 0;
+pic = 0;                                     % counter for pictures
+% spparms('spumoni',1)
+tic;                                           % timer on
+psi_n = zeros(N,1);
+for j=1:N
+    psi_n(j) = f_psi(coordinates(:,j));
+end
+grad_u_grad_v = sparse(N,N);
+f_phi = zeros(N,1);
+jac=zeros(N_t,1);
+for j = 1:N_t
+    tri = triangles(:,j);
+    jac(j)=det([1,1,1; coordinates(:,tri')]);                                                                 % 2 x area of the current triangle
+    grad_u_grad_v(tri,tri) = grad_u_grad_v(tri,tri)+Local_Stiff_1(coordinates(:,tri'));                         % grad_u grad v integral component
+    f_phi(tri)=f_phi(tri)+  [f(coordinates(:,tri(1)));f(coordinates(:,tri(2)));f(coordinates(:,tri(3)))]*jac(j)/6;
+end
+kappa_cond=0;
+while kappa_cond==0                                  % here the predictor-corrector iterations begin
+    k=k+1;
+    disp(['CORRECTOR STEP: ', 'k=',int2str(k),' \kappa=',num2str(kappa)]);
+    conv=1;                                       % convergence criterion
+    m=0;                                          % counter for Newton iterations
+    disp('Newton iterations ...  ');
+    while conv > Theta                            % Newton iterations begin
+        m=m+1;
+        A = grad_u_grad_v;
+        b = -grad_u_grad_v*u + f_phi;
+        % Assembly
+        for j = 1:N_t
+            tri=triangles(:,j);
+            bf=1./(u(tri)-psi_n(tri));                                                       % barrier factor
+            A(tri,tri)  = A(tri,tri) + kappa * jac(j) * diag(bf.^2)/6;                                                  % Stiffnes matrix
+            b(tri) = b(tri) + jac(j)  * kappa * bf/6 ;                                                          % Right hand side
+        end
+        corr = zeros(N,1);
+        %corr(BoundaryNodes) = 0;
+        %b = b - A * corr;
+        %COMPUTATION OF THE CORRECTOR
+        corr(Nodes)= A(Nodes,Nodes)\b(Nodes);
+        vec = corr./(u-psi_n);
+        Linf_vec = norm(vec,inf);
+        L2_vec = sqrt(sum(vec(triangles).^2,1)*jac/6);
+        if L2_vec>0
+            C1 = Linf_vec/L2_vec;
+        end
+        C = max(C1,C);
+        alpha = 1;
+        while alpha*Linf_vec >0.99
+            alpha = alpha/2;
+        end;
+        u = u+alpha*corr;
+        conv=Linf_vec;
+    end
+    iter = [iter; [k, kappa, m]];
+    clear corr;
+    if kappa<=eps
+        break
+    end
+    disp(['PREDICTOR STEP...']);
+    A = grad_u_grad_v;
+    b = -grad_u_grad_v*u + f_phi;
+    % Assembly
+    for j = 1:N_t
+        tri=triangles(:,j);
+        bf=(1./(u(tri)-psi_n(tri)));                                               % barrier factor
+        A(tri,tri) = A(tri,tri) + kappa * jac(j) * diag(bf.^2)/6;                % Stiffnes matrix
+    end
+    pred = zeros(N,1);
+    % COMPUTATION OF THE PREDICTOR
+    pred(Nodes)= A(Nodes,Nodes)\b(Nodes);
+    vecp = pred./(u-psi_n);
+    Linf_vecp = norm(vecp,inf);
+    rho = 0.99;
+    while rho*Linf_vecp > 0.99
+        rho = 0.9*rho;
+        if rho < 0.001
+            'small rho....'
+            stop
+        end
+    end;
+    % checking of the condition for rho
+    Xi1=sum(vec(triangles).^4,1)*jac/6;
+    Xi2=sum(vec(triangles).^4.*vecp(triangles),1)*jac/6;
+    Xi3=sum(vec(triangles).^4.*vecp(triangles).^2,1)*jac/6;
+    Xi4=sum(vec(triangles).^2.*vecp(triangles).*(1.+vecp(triangles)),1)*jac/6;
+    Xi5=sum(vec(triangles).^2.*vecp(triangles).^2.*(1.+vecp(triangles)),1)*jac/6;
+    Xi6=sum(vecp(triangles).^2.*(1.+vecp(triangles)).^2,1)*jac/6;
+    Xi=Xi1+2*rho*Xi2+rho*rho*Xi3+2*rho*rho/(1-rho)*Xi4+2*rho^3/(1-rho)*Xi5+rho^4/(1-rho)^2*Xi6;
+    rho1=rho;
+    Xi_min=Xi;
+    while Xi > (Theta/C)^2
+        if rho1<0.1
+            rho1=0.7*rho1;
+        else
+            rho1=rho1-0.1;
+        end;
+        if rho1<=0.0001
+            ' Xi^2 <= (Theta/C)^2 is not satisfied'
+            break
+        end
+        Xi_min=Xi1+2*rho1*Xi2+rho1*rho1*Xi3+2*rho1*rho1/(1-rho1)*Xi4+2*rho1^3/(1-rho1)*Xi5+rho1^4/(1-rho1)^2*Xi6;
+        if Xi_min<Xi
+            rho=rho1;
+            Xi=Xi_min;
+        end
+    end
+    u=u+rho*pred;
+    clear pred;
+    kappa=(1-rho)*kappa;
+end
+toc;
+clear f_phi;
+c=kappa./(u-psi_n)-10;
+pic=pic+1; show(pic,triangles,coordinates,u); title('Approximate solution u' )
+show(pic+1,triangles, coordinates, c); title ('Lagrange multipliers'); view(0,0);
+disp('REPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASH-');
+disp('Iteration No |  kappa  | # of Newton iterations');
+iter
+return
+%% Function which computes the local stiffness matrix
+function A_elem = Local_Stiff_1(vertices,area)
+G = [1,1,1;vertices] \ [0, 0; 1,0; 0,1];
+A_elem = det([1,1,1;vertices]) * G * G'/2 ;
+return
+
+%% Function which describes the obstacle
+function Obstacle = f_psi(x);
+% Obstacle =-1;                   %            horizontal plane
+%REPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASH
+% Obstacle = -0.2*x(1)-0.2*x(2)-0.5;          % oblique plane
+% %REPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASH-
+%  if (abs(x(1))<=0.5)
+%      Obstacle = -2;
+%  elseif (x(1)>-1) & (x(1)<-0.5)
+%      Obstacle = 20*x(1)+8;
+%  elseif (x(1)>0.5) & (x(1)<1)
+%      Obstacle  = -20*x(1)+8;
+%  else
+%      Obstacle = -12;
+%  end
+% %REPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASH-
+% if (abs(x(1)-0.2)<=0.3)
+%     Obstacle = -2;
+% else
+%     Obstacle = -20;
+% end
+% REPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASH-
+if (abs(x(1)-0.3)<=0.4) & (abs(x(2))<=0.4)             % piecewise linear
+    Obstacle = -0.2;
+elseif (x(1)<-0.1 & x(1)>-0.2 & abs(x(2))<=0.4)
+    Obstacle = 100*x(1)+9.2;
+elseif (x(1)<0.5 & x(1)>0.4 & abs(x(2))<=0.4)
+    Obstacle = -100*x(1)-40.2;
+elseif (abs(x(1)-0.3)<=0.4 & x(2)<.5 & x(2)>0.4)
+    Obstacle = -100*x(2)-40.2;
+elseif (abs(x(1)-0.3)<=0.4 & x(2)<-.4 & x(2)>-0.5)
+    Obstacle = 100*x(2)+39.8;
+else
+    Obstacle = -10.2;
+end
+%REPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASH
+% if (x(1)-0.3)^2+x(2)^2<=0.25                    %     vertical cylinder
+%        Obstacle= 1;
+% else
+%     Obstacle=-1;
+% end;
+%REPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASH
+% if (x(1)-0.3)^2+x(2)^2<=1                     %   cone, opened
+%        Obstacle= -sqrt((x(1)-0.3)^2+x(2)^2)-2;
+% else
+%     Obstacle=-100;
+% end;
+
+%REPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASH
+%  if (x(1)+0.3)^2+x(2)^2<=0.64                %    sphere
+%      Obstacle=sqrt(0.64-(x(1)+0.3)^2-x(2)^2)-2;
+%  else
+%      Obstacle=-2;
+%  end
+%
+% R=0.7;
+% if x(1)^2+x(2)^2<=R^2                   % sphere
+%      Obstacle=sqrt(R^2-(x(1))^2-x(2)^2)-R-1;
+% %  else
+%      Obstacle=-100;
+%  end
+% REPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASH-
+%  if (abs(x(1)+0.3)<=0.8)                             %  horizontal cylinder
+%       Obstacle = sqrt(0.64-(x(1)+0.3)^2)-1;
+%   else
+%       Obstacle = -1;
+%   end
+%REPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASHREPLACE_WITH_DASH_DASH-
+%   Obstacle = sin(pi*(x(1)+1/4))-0.5;
+return
+
+%% Function for plotting of the surface on triangular mesh
+function show(pic_no,triangles,coordinates,u)
+figure(pic_no);
+trisurf(triangles',coordinates(1,:),coordinates(2,:),full(u)','facecolor','interp','FaceLighting','phong');
+colorbar; view([-42 40]);
+%         zlim([-10,0]);
+return
+##### SOURCE END #####
+--></body></html>
